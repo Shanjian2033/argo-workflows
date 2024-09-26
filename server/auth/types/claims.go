@@ -3,9 +3,9 @@ package types
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
-
 	"github.com/go-jose/go-jose/v3/jwt"
+	"io"
+	"net/http"
 )
 
 type Claims struct {
@@ -18,10 +18,6 @@ type Claims struct {
 	ServiceAccountNamespace string                 `json:"service_account_namespace,omitempty"`
 	PreferredUsername       string                 `json:"preferred_username,omitempty"`
 	RawClaim                map[string]interface{} `json:"-"`
-}
-
-type UserInfo struct {
-	Groups []string `json:"groups"`
 }
 
 type HttpClient interface {
@@ -81,7 +77,16 @@ func (c *Claims) GetCustomGroup(customKeyName string) ([]string, error) {
 	return newSlice, nil
 }
 
-func (c *Claims) GetUserInfoGroups(accessToken, issuer, userInfoPath string) ([]string, error) {
+func TransToStringList(v interface{}) []string {
+	v_ := v.([]interface{})
+	array := make([]string, len(v_))
+	for i, str := range v_ {
+		array[i] = str.(string)
+	}
+	return array
+}
+
+func (c *Claims) GetUserInfoGroups(accessToken, issuer, userInfoPath string, userInfoGroupsField string) ([]string, error) {
 	url := fmt.Sprintf("%s%s", issuer, userInfoPath)
 	request, err := http.NewRequest("GET", url, nil)
 
@@ -98,14 +103,20 @@ func (c *Claims) GetUserInfoGroups(accessToken, issuer, userInfoPath string) ([]
 		return nil, err
 	}
 
-	userInfo := UserInfo{}
-
 	defer response.Body.Close()
-	err = json.NewDecoder(response.Body).Decode(&userInfo)
+
+	var userInfo map[string]interface{}
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(body, &userInfo)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return userInfo.Groups, nil
+	return TransToStringList(userInfo[userInfoGroupsField]), nil
 }
